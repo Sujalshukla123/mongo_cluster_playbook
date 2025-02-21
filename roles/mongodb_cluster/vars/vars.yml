@@ -1,0 +1,12 @@
+mongodb_version: "4.x"
+replica_set_name: "rs0"
+ubuntu_version: "jammy"
+mongo_port: 27017
+primary_node: "172.31.90.170"
+secondary_nodes:
+  - "172.31.89.163"
+  - "172.31.81.67"
+mongo_bind_ip: "0.0.0.0"
+pri : ec2-1
+mongo_admin_user: "admin"
+mongo_admin_password: "1234"

@@ -1,0 +1,19 @@
+storage :
+ dbPath : /var/lib/mongodb
+
+
+systemLog:
+ destination : file 
+ logAppend : true 
+ path : /var/log/mongodb/mongodb.log 
+
+net :
+ port : {{mongo_port}}
+ bindIp : {{mongo_bind_ip}}
+
+
+replication :
+  replSetName : "{{replica_set_name }}"
+
+security:
+  keyFile: "/etc/mongo-keyfile.txt"  

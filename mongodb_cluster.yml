@@ -1,0 +1,13 @@
+---
+- name: Deploy MongoDB Replica Set
+  hosts: mongodb_servers
+  become: yes
+  vars_files:
+  - roles/mongodb_cluster/vars/vars.yml
+
+  roles:
+     - mongodb_cluster
+
+
+  
+

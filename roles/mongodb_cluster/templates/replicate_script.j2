@@ -1,0 +1,13 @@
+
+ rs.initiate({
+  _id: "{{ replica_set_name }}",
+  members: [
+    { _id: 0, host: "{{ primary_node }}:{{ mongo_port }}" },
+    {% for node in secondary_nodes %}
+    { _id: {{ loop.index }}, host: "{{ node }}:{{ mongo_port }}" },
+    {% endfor %}
+  ]
+});
+
+
+

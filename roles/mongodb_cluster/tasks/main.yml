@@ -1,0 +1,124 @@
+---
+- name: Add MongoDB 4.x APT Key
+  apt_key:
+    url: "https://www.mongodb.org/static/pgp/server-4.4.asc"
+    state: present
+
+- name: Add MongoDB 4.x Repository (Using Ubuntu 20.04 repo)
+  apt_repository:
+    repo: "deb [ arch=amd64 ] https://repo.mongodb.org/apt/ubuntu focal/mongodb-org/4.4 multiverse"
+    state: present
+    update_cache: yes
+
+- name: Install libssl1.1 (required by MongoDB 4.x)
+  shell: |
+    cd /tmp
+    wget http://archive.ubuntu.com/ubuntu/pool/main/o/openssl/libssl1.1_1.1.0g-2ubuntu4_amd64.deb
+    dpkg -i libssl1.1_1.1.0g-2ubuntu4_amd64.deb
+
+- name: Install MongoDB 4.x
+  apt:
+    name: mongodb-org
+    state: present
+
+- name: Prevent MongoDB from updating (lock package version)
+  command: "echo 'mongodb-org hold' | dpkg --set-selections"
+
+- name: Copy MongoDB Configuration
+  template:
+    src: roles/mongodb_cluster/templates/config_tem.j2
+    dest: /etc/mongod.conf
+  notify: Restart MongoDB
+
+- name: Check if MongoDB Keyfile Exists on First Node
+  stat:
+    path: "/tmp/mongo-keyfile.txt"
+  delegate_to: "{{ groups['mongodb_servers'][0] }}"                                # Run on the first node
+  register: keyfile_status
+
+- name: Generate MongoDB Keyfile on First Node if Not Exists
+  shell: "openssl rand -base64 756 | tr -d '\n' > /tmp/mongo-keyfile.txt"
+  delegate_to: "{{ groups['mongodb_servers'][0] }}"
+  become: yes
+  when: not keyfile_status.stat.exists
+
+- name: Fetch MongoDB Keyfile from First Node to Local Machine
+  fetch:
+    src: "/tmp/mongo-keyfile.txt"
+    dest: "/tmp/mongo-keyfile.txt"
+    flat: yes
+  delegate_to: "{{ groups['mongodb_servers'][0] }}"
+  run_once: true
+
+- name: Copy MongoDB Keyfile from Local to Other Nodes
+  copy:
+    src: "/tmp/mongo-keyfile.txt"
+    dest: "/tmp/mongo-keyfile.txt"
+  become: yes
+  when: inventory_hostname != groups['mongodb_servers'][0]                             # Exclude first node
+
+- name: Move MongoDB Keyfile to /etc/mongo-keyfile.txt if Not Exists
+  command: mv /tmp/mongo-keyfile.txt /etc/mongo-keyfile.txt
+  become: yes
+  args:
+    creates: /etc/mongo-keyfile.txt                                # Ensures it only runs if file doesn’t exist
+
+- name: Set Correct Permissions on /etc/mongo-keyfile.txt
+  file:
+    path: /etc/mongo-keyfile.txt
+    owner: mongodb
+    group: mongodb
+    mode: '0600'                                                 # read and write 
+  become: yes
+
+- name: Ensure MongoDB is started
+  systemd:
+    name: mongod
+    state: started
+    enabled: yes
+
+- name: Wait for MongoDB to start
+  pause:
+    seconds: 10
+
+- name: Initialize Replica Set 
+  template:
+    src: replicate_script.j2
+    dest: /tmp/rs_init.js
+  when: inventory_hostname == pri
+
+- name: Execute MongoDB Replica Set Initialization on Primary Node
+  shell: sudo mongo --host localhost --eval "load('/tmp/rs_init.js')"
+  when: inventory_hostname ==  pri
+
+- name: Copy MongoDB Admin User Creation Script
+  template:
+    src: mongo_admin.j2
+    dest: /tmp/mongo_admin.js
+    mode : '0644'                                         # to make the fiel readable to all the user
+  when: inventory_hostname == pri
+
+- name: Execute MongoDB Admin User Creation
+  shell: sudo mongo --host localhost --eval "load('/tmp/mongo_admin.js')"
+  args:
+      executable: /bin/bash
+  when: inventory_hostname == pri
+
+# - name: Create MongoDB Admin User if it does not exist
+#   shell: >
+#     sudo mongo --host localhost --eval
+#     'db.getSiblingDB("admin").getUser("admin") ? print("User exists") : load("/tmp/mongo_admin.js")'
+#   register: mongo_user_check
+#   changed_when: "'User exists' not in mongo_user_check.stdout"
+#   when: inventory_hostname == pri
+
+
+- name: Add authorization to security block in /etc/mongod.conf
+  lineinfile:
+    path: /etc/mongod.conf
+    regexp: "^\\s*authorization:"
+    line: "  authorization: \"Enabled\""
+    insertafter: "^security:"
+  notify: Restart MongoDB
+
+
